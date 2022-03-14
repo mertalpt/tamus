@@ -228,6 +228,8 @@ class Tamus:
         elif t == "remus":
             self.remus(subset=[i for i in range(self.dimension)], crits=[
                        False for _ in range(self.dimension)], depth=0)
+        elif t == "nvac":
+            self.nonvacuity()
         else:
             assert False
         print("MSRs:", len(self.msres))
@@ -373,6 +375,31 @@ class Tamus:
         print("Running every mmsr, min parameter sum:", min_valuation)
         print("Running every mmsr, parameter values:", min_parameters)
         print("Running every mmsr cumulative time:", cumulative_time, "\n")
+
+    def nonvacuity(self):
+        """
+        Given N timed automata, ensure each one can reach its accepting state without making another TA go into error.
+        """
+        start_time = time.process_time()
+        # We will trick Tamus into thinking we called a subtemplate with the 'amsr' task
+        # We will be calling the generating function manually, so not sure how much of this is necessary
+        args_var = vars(self.args)
+        args_var['task'] = 'amsr'
+        args_copy = argparse.Namespace(**args_var)
+        i = 0
+
+        for template in self.TA.templates:
+            print("Begin Iteration:", str(i))
+            curr = Tamus(self.model_file, self.query_file, template.name, args_copy)
+            curr.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
+            curr.verbosity = args_copy.verbose if args_copy.verbose != None else 0
+            curr.task = args_copy.task
+            curr.usePathAnalysis = args_copy.path_analysis
+            curr.useMultiplePathCores = args_copy.multiple_path_cores
+            curr.minimumMSR(True)
+            msres, constraints, traces = curr.get_MSRes()  # All work, but results are empty lists
+            print("End Iteration:", str(i), "\n\tMSRs:", str(msres), "\n\tConstraints:", str(constraints), "\n\tTraces:", str(traces))
+            i += 1
 
     def partition_MMSRs(self, AMMSR, unionOfAMMSR, n):
         """Partition the given MMSRs into n constraint sets such that each MSR is included in a constraint set."""
@@ -736,8 +763,6 @@ class Tamus:
 
 if __name__ == '__main__':
 
-    print("PATH:", os.getenv("PATH"))
-
     # define command line arguments
     parser = argparse.ArgumentParser(
         "TAMUS - a tool for relaxing reachability properties in Time Automatas based on Minimal Sufficinet Reductions (MRS) and linear programming.")
@@ -747,8 +772,8 @@ if __name__ == '__main__':
     parser.add_argument("--verbose", "-v", action="count",
                         help="Use the flag to increase the verbosity of the outputs. The flag can be used repeatedly.")
     parser.add_argument("--msr-timelimit", type=int, help="Sets up timelimit for MSR enumeration. Note that the computation is not terminated exactly after the timelimit, but once the last identified MSR exceeds the timelimit. We recommend you to use UNIX timeout when using our tool, if you want to timeout the whole computation. ")
-    parser.add_argument("--task", choices=["pasba", "maxpasba", "msr", "mmsr", "mg", "mmg", "amsr", "amg", "amsramg", "eba", "sba", "marco", "remus", "maxsba", "mineba"],
-                        help="Choose the computation taks: msr - an MSR, mmsr - a minimum MSR, mg - an MG, mmg - a minimum MG, amsr - all MSRs, amg - all MGs, amsramg - all MSRs and MGs.", default="mmsr")
+    parser.add_argument("--task", choices=["pasba", "maxpasba", "msr", "mmsr", "mg", "mmg", "amsr", "amg", "amsramg", "eba", "sba", "marco", "remus", "maxsba", "mineba", "nvac"],
+                        help="Choose the computation taks: msr - an MSR, mmsr - a minimum MSR, mg - an MG, mmg - a minimum MG, amsr - all MSRs, amg - all MGs, amsramg - all MSRs and MGs, nvac - nonvacuity.", default="mmsr")
     parser.add_argument("--run_imitator_on_mg", action='store_true',
                         help="After fnding minimal guarantee, runs imitator on it. This value does not have effect if any task other than mmg is selected.")
     parser.add_argument("--run_imitator_on_msr", action='store_true',
