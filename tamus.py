@@ -1,9 +1,11 @@
 import sys
+import tempfile
 import time
 import argparse
 import os
 
 from explorer import Explorer
+from uppaalHelpers import pyuppaal
 from uppaalHelpers import ta_helper
 from uppaalHelpers import timed_automata
 from uppaalHelpers import path_analysis
@@ -376,31 +378,6 @@ class Tamus:
         print("Running every mmsr, parameter values:", min_parameters)
         print("Running every mmsr cumulative time:", cumulative_time, "\n")
 
-    def nonvacuity(self):
-        """
-        Given N timed automata, ensure each one can reach its accepting state without making another TA go into error.
-        """
-        start_time = time.process_time()
-        # We will trick Tamus into thinking we called a subtemplate with the 'amsr' task
-        # We will be calling the generating function manually, so not sure how much of this is necessary
-        args_var = vars(self.args)
-        args_var['task'] = 'amsr'
-        args_copy = argparse.Namespace(**args_var)
-        i = 0
-
-        for template in self.TA.templates:
-            print("Begin Iteration:", str(i))
-            curr = Tamus(self.model_file, self.query_file, template.name, args_copy)
-            curr.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
-            curr.verbosity = args_copy.verbose if args_copy.verbose != None else 0
-            curr.task = args_copy.task
-            curr.usePathAnalysis = args_copy.path_analysis
-            curr.useMultiplePathCores = args_copy.multiple_path_cores
-            curr.minimumMSR(True)
-            msres, constraints, traces = curr.get_MSRes()  # All work, but results are empty lists
-            print("End Iteration:", str(i), "\n\tMSRs:", str(msres), "\n\tConstraints:", str(constraints), "\n\tTraces:", str(traces))
-            i += 1
-
     def partition_MMSRs(self, AMMSR, unionOfAMMSR, n):
         """Partition the given MMSRs into n constraint sets such that each MSR is included in a constraint set."""
         if len(AMMSR) == 1:
@@ -686,6 +663,92 @@ class Tamus:
                 constraints[i], delays, parameters))
         print("Elapsed time in seconds after LP:",
               (time.process_time() - self.start_time))
+
+    def nonvacuity(self):
+        """
+        Given N timed automata, ensure each one can reach its accepting state without making another TA go into error.
+
+        Tamus works with single definition and query files. So, we will need a special format for them.
+        There is no requirement for the definition (.xml) file.
+        For the query file, there must be a query for reachability of the acceptance state of a template per line.
+        Also, the lines for templates should be ordered by the order they are declared in the 'system' line in the definition.
+
+        Example:
+            In definition file, system tag is as such:
+                <system>
+                    Template1 = TemplateA();
+                    Template2 = TemplateB();
+                    system Template1, Template2;
+                </system>
+            In query file, we do this:
+                E<> Template1.accept
+                E<> Template2.accept
+        """
+        def nvac_helper(queries, templates, curr_idx, prev_templates, base_dir='.'):
+            """
+            Runs a recursive search on the TAs.
+
+            1. Current template is the first next template
+            2. Generate a list of all MSRs of the current template
+            3. Prepend current template to the front of the list
+            4. For each template in the list check if a non-vacuous construction can be made
+            """
+            # No more templates
+            if curr_idx == len(templates):
+                return []
+            curr_template = templates[curr_idx]
+            curr_query_path = queries[curr_idx]
+            curr_templates = prev_templates + templates[curr_idx:]
+            # Write a temporary model file
+            model_path_base = f'{base_dir}/tmp_iteration.xml'
+            curr_nta = pyuppaal.NTA(self.model.declaration, self.model.system, curr_templates)
+            model_path = ta_helper.set_templates_and_save(model_path_base, curr_nta, curr_templates)
+            # We will trick Tamus into thinking we called a subtemplate with the 'amsr' task
+            # We will be calling the generating function manually, so not sure how much of this is necessary
+            args_var = vars(self.args)
+            args_var['task'] = 'amsr'
+            args_copy = argparse.Namespace(**args_var)
+            curr_tamus = Tamus(model_path, curr_query_path, curr_template.name, args_copy)
+            curr_tamus.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
+            curr_tamus.verbosity = args_copy.verbose if args_copy.verbose != None else 0
+            curr_tamus.task = args_copy.task
+            curr_tamus.usePathAnalysis = args_copy.path_analysis
+            curr_tamus.useMultiplePathCores = args_copy.multiple_path_cores
+            curr_tamus.minimumMSR(True)
+            msres, _, _ = curr_tamus.get_MSRes()
+
+            # Iterate over possible relaxations
+            candidates = [curr_template] + msres
+            candidates = list(filter(lambda x: type(x) != list or len(x) != 0, candidates))
+
+            for candidate in candidates:
+                # Process rest of the templates
+                next = nvac_helper(queries, templates, curr_idx + 1, prev_templates + [candidate], base_dir)
+                processed = prev_templates + [candidate] + next
+                # Test if processed still works for the current candidate
+                curr_ta = timed_automata.TimedAutomata()
+                curr_ta.initialize_from_templates(candidates)
+                model_path = ta_helper.set_templates_and_save(model_path_base, curr_nta, processed)
+                res, _, _ = ta_helper.verify_reachability(model_path, curr_query_path, curr_ta, [], candidate.name)
+                if res == 1:
+                    return [candidate] + next
+            raise Exception('Non-vacuity is impossible.')
+
+        start_time = time.process_time()
+        with tempfile.TemporaryDirectory() as tempdir:
+            templates = self.TA.templates
+            queries = []
+            with open(self.query_file) as qf:
+                lines = qf.readlines()
+                for idx, line in enumerate(lines):
+                    query_path = f'{tempdir}/query-{idx}.q'
+                    queries.append(query_path)
+                    with open(query_path, mode='w') as f:
+                        f.write(line)
+            res = nvac_helper(queries, templates, 0, [], tempdir)
+            res_nta = pyuppaal.NTA(self.model.declaration, self.model.system, res)
+            res_model_path = ta_helper.set_templates_and_save(self.model_file, res_nta, res)
+            print(f'Found non-vacuous relaxation. Writing to "{res_model_path}"')
 
     # finds a minimum minimal sufficient reduction
     def minimumMSR(self, allMSRs=False):
