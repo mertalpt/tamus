@@ -688,7 +688,7 @@ class Tamus:
             """
             Runs a recursive search on the TAs.
 
-            1. Current template is the first next template
+            1. Current template is the template at current index
             2. Generate a list of all MSRs of the current template
             3. Prepend current template to the front of the list
             4. For each template in the list check if a non-vacuous construction can be made
@@ -717,13 +717,19 @@ class Tamus:
             curr_tamus.minimumMSR(True)
             msres, _, _ = curr_tamus.get_MSRes()
 
+            # TODO: MSRs are not templates but constraint sets (to be removed from the template)
+            # Map constraint sets to templates before using them
+
             # Iterate over possible relaxations
             candidates = [curr_template] + msres
             candidates = list(filter(lambda x: type(x) != list or len(x) != 0, candidates))
 
             for candidate in candidates:
                 # Process rest of the templates
-                next = nvac_helper(queries, templates, curr_idx + 1, prev_templates + [candidate], base_dir)
+                try:
+                    next = nvac_helper(queries, templates, curr_idx + 1, prev_templates + [candidate], base_dir)
+                except Exception:
+                    continue
                 processed = prev_templates + [candidate] + next
                 # Test if processed still works for the current candidate
                 curr_ta = timed_automata.TimedAutomata()
