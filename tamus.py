@@ -684,7 +684,7 @@ class Tamus:
                 E<> Template1.accept
                 E<> Template2.accept
         """
-        def nvac_helper(queries, templates, curr_idx, prev_templates, base_dir='.'):
+        def nvac_helper(queries, templates, curr_idx, prev_templates, base_dir='.', find_all=True):
             """
             Runs a recursive search on the TAs.
 
@@ -696,6 +696,7 @@ class Tamus:
             # No more templates
             if curr_idx == len(templates):
                 return []
+            solutions = list()
             curr_template = templates[curr_idx]
             curr_query_path = queries[curr_idx]
             curr_templates = prev_templates + templates[curr_idx:]
@@ -720,8 +721,11 @@ class Tamus:
             # Iterate over possible relaxations
             candidates = [curr_template]
             for msr in msres:
-                msr_candidates = self.TA.generate_relaxed_templates(msr)
-                candidates += msr_candidates
+                # If len is 0 then accept state for the current template is reachable
+                # But we already add it to the candidates
+                if len(msr) != 0:
+                    msr_candidates = curr_tamus.TA.generate_relaxed_templates(msr)
+                    candidates += [t for t in msr_candidates if t.name == curr_template.name]
 
             for candidate in candidates:
                 # Process rest of the templates
@@ -736,7 +740,12 @@ class Tamus:
                 model_path = ta_helper.set_templates_and_save(model_path_base, curr_nta, processed)
                 res, _, _ = ta_helper.verify_reachability(model_path, curr_query_path, curr_ta, [], candidate.name)
                 if res == 1:
-                    return [candidate] + next
+                    if find_all and curr_idx == 0:
+                        solutions.append(processed)
+                    else:
+                        return [candidate] + next
+            if curr_idx == 0 and len(solutions) > 0:
+                return solutions
             raise Exception('Non-vacuity is impossible.')
 
         start_time = time.process_time()
@@ -750,10 +759,13 @@ class Tamus:
                     queries.append(query_path)
                     with open(query_path, mode='w') as f:
                         f.write(line)
-            res = nvac_helper(queries, templates, 0, [], tempdir)
-            res_nta = pyuppaal.NTA(self.model.declaration, self.model.system, res)
-            res_model_path = ta_helper.set_templates_and_save(self.model_file, res_nta, res)
-            print(f'Found non-vacuous relaxation. Writing to "{res_model_path}"')
+            results = nvac_helper(queries, templates, 0, [], tempdir)
+            for idx, res in enumerate(results):
+                res_nta = pyuppaal.NTA(self.model.declaration, self.model.system, res)
+                res_model_path = ta_helper.set_templates_and_save(
+                    f'{self.model_file[:-4]}-sol-{idx}{self.model_file[-4:]}', res_nta, res
+                )
+                print(f'Found non-vacuous relaxation. Writing to "{res_model_path}"')
 
     # finds a minimum minimal sufficient reduction
     def minimumMSR(self, allMSRs=False):
