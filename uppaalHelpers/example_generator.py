@@ -1,3 +1,5 @@
+import random
+
 from . import pyuppaal
 
 
@@ -159,3 +161,100 @@ def generate_benchmarks(folder):
         ci += 2
         cc += 2
     return file_names
+
+
+def generate_nonvacuity_benchmarks(dir_path):
+    def generator(nclock, nautomata, nlocation, ntransition, threshold_min, threshold_max):
+        """
+        Generates a representation of a system of TAs. The caller should handle the conversion to files.
+
+        Flow:
+        1. Create a list of clocks.
+        2. Create a list of TAs in the system.
+        2. Create lists of locations for each TA in the system.
+        3. Create lists of transitions for each TA in the system via mapping from source to target.
+        4. Populate the transition list by randomly selected pairs and guards of clocks.
+        5. Mark the first state as the start state, the second state as the accept state 
+           and the third state as the error state for each TA.
+        6. Generate query strings for each TA.
+        7. Return the data.
+
+        There is the possibility that either accept or error state of a TA is unreachable from the start state,
+        we do not do anything to prevent that.
+        """
+        assert nlocation >= 3, 'Generator assumes there must exist at least a start, an accept and an error state in a TA.'
+        clocks = [f'c{i}' for i in range(nclock)]
+        automata = [dict() for _ in range(nautomata)]
+        for idx, automaton in enumerate(automata):
+            automaton['name'] = f'Automaton{idx}'
+            automaton['locations'] = [f'l{i}' for i in range(nlocation)]
+            automaton['transitions'] = dict()
+            for _ in range(ntransition):
+                source, target = tuple(random.sample(automaton['locations'], 2))
+                guard_clock = random.choice(clocks)
+                operator = random.choice(['<', '>', '=', '<=', '>='])
+                threshold = random.randint(threshold_min, threshold_max)
+                reset_count = random.randint(0, len(clocks))
+                reset_clocks = random.sample(clocks, reset_count)
+                resets = ', '.join([f'{clock}=0' for clock in reset_clocks])
+                automaton['transitions'][source] = (target, f'{guard_clock}{operator}{threshold}', resets)
+        queries = []
+        for i, automaton in enumerate(automata):
+            query = ['E<>', '(', f'{automaton["name"]}.{automaton["locations"][1]}']
+            for j, automaton in enumerate(automata):
+                if i == j:
+                    continue
+                query.extend(['&&', f'!{automaton["name"]}.{automaton["locations"][2]}'])
+            query.append(')')
+            queries.append(' '.join(query))
+        return clocks, automata, queries
+    
+    # Generate examples
+    nexamples = 1
+    nclock = 2
+    nautomata = 4
+    nlocation = 6
+    ntransition = 10
+    threshold_min = 0
+    threshold_max = 20
+
+    for i in range(nexamples):
+        clocks, automata, queries = generator(nclock, nautomata, nlocation, ntransition, threshold_min, threshold_max)
+        templates = []
+        system_init = []
+        system = ['system']
+        for automaton in automata:
+            system_init.append(f'{automaton["name"]} = {automaton["name"]}();')
+            system.append(automaton['name'])
+            template = pyuppaal.Template(automaton['name'])
+            template.locations = [pyuppaal.Location(name=loc) for loc in automaton['locations']]
+            template.initlocation = template.locations[0]
+            template.transitions = []
+            for key, val in automaton['transitions'].items():
+                source = key
+                target, guard, resets = val
+                for loc in template.locations:
+                    if str(loc.name) == source:
+                        source = loc
+                        break
+                for loc in template.locations:
+                    if str(loc.name) == target:
+                        target = loc
+                        break
+                template.transitions.append(pyuppaal.Transition(source, target, guard=guard, assignment=resets))
+            templates.append(template)
+            template.layout()
+        nta = pyuppaal.NTA(
+            declaration=f'clock {", ".join(clocks)};' + '\n',
+            system='\n'.join(system_init) + '\n' + f'{" ".join(system)};',
+            templates=templates
+        )
+        base_file_path = f'{dir_path}/Example-{i}'
+        ta_file_path = f'{base_file_path}.xml'
+        ta_file_contents = nta.to_xml()
+        query_file_path = f'{base_file_path}.q'
+        query_file_contents = '\n'.join(queries)
+        with open(ta_file_path, mode='w') as f:
+            f.write(ta_file_contents)
+        with open(query_file_path, 'w') as f:
+            f.write(query_file_contents)
