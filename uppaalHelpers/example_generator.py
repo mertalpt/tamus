@@ -1,3 +1,4 @@
+import copy
 import random
 
 from . import pyuppaal
@@ -164,7 +165,8 @@ def generate_benchmarks(folder):
 
 
 def generate_nonvacuity_benchmarks(
-        dir_path,
+        out_dir_path,
+        model_template_file=None,
         nexamples=1,
         nclock=2,
         nautomata=4,
@@ -173,46 +175,106 @@ def generate_nonvacuity_benchmarks(
         threshold_min=5,
         threshold_max=20,
 ):
-    def generator(nclock, nautomata, nlocation, ntransition, threshold_min, threshold_max):
+    def random_template_generator(name: str, nlocation: int, ntransition: int) -> pyuppaal.Template:
         """
-        Generates a representation of a system of TAs. The caller should handle the conversion to files.
+        Generates a random template with the given parameters.
+        Some constraints:
+        - Making locations reachable is prioritized when creating new transitions.
+        - Multiple transitions between locations in either direction is possible.
+        - The template is empty except for the locations and the transitions.
 
-        Flow:
-        1. Create a list of clocks.
-        2. Create a list of TAs in the system.
-        2. Create lists of locations for each TA in the system.
-        3. Create lists of transitions for each TA in the system via mapping from source to target.
-        4. Populate the transition list by randomly selected pairs and guards of clocks.
-        5. Mark the first state as the start state, the second state as the accept state 
-           and the third state as the error state for each TA.
-        6. Generate query strings for each TA.
-        7. Return the data.
-
-        There is the possibility that either accept or error state of a TA is unreachable from the start state,
-        we do not do anything to prevent that.
+        :param name: Name to be given to the template.
+        :param nlocation: Number of locations in the template.
+        :param ntransition: Total number of transitions between the locations.
+        :return: pyuppaal.Template object filled with the randomly generated template.
         """
         assert nlocation >= 3, \
             'Generator assumes there must exist at least a start, an accept and an error state in a TA.'
-        # Initialize the system components: clocks and templates
-        clocks = [f'c{i}' for i in range(nclock)]
-        automata = [dict() for _ in range(nautomata)]
-        operators = ['<', '>', '==', '<=', '>=']
+
+        locations: list[pyuppaal.Location] = [pyuppaal.Location(id=f'id{n}', name=f'l{n}') for n in range(nlocation)]
+        initlocation: pyuppaal.Location = locations[0]
+        transitions: list[pyuppaal.Transition] = []
+
+        reachable: set[pyuppaal.Location] = {initlocation}
+        unreachable: set[pyuppaal.Location] = set(locations[1:])
+
+        for _ in range(ntransition):
+            if unreachable:
+                source = random.sample(reachable, 1)[0]
+                target = random.sample(unreachable, 1)[0]
+                unreachable.remove(target)
+                reachable.add(target)
+            else:
+                source, target = tuple(random.sample(reachable, 2))
+            transition = pyuppaal.Transition(source, target)
+            transitions.append(transition)
+
+        template: pyuppaal.Template = pyuppaal.Template(
+            name, locations=locations, initlocation=initlocation, transitions=transitions
+        )
+        return template
+
+    def random_nta_generator(
+            nclock: int,
+            nautomata: int,
+            nlocation: int,
+            ntransition: int
+    ) -> tuple[pyuppaal.NTA, list[str]]:
+        """
+        Randomly generates a system of automata without constraints on the locations or the transitions.
+        :param nclock: Number of clocks in the system.
+        :param nautomata: Number of automata in the system.
+        :param nlocation: Number of locations per automaton.
+        :param ntransition: Number of transitions per automaton.
+        :return: A randomly generated pyuppaal.NTA object.
+        """
+        clocks: list[str] = [f'c{i}' for i in range(nclock)]
+        automata: list[pyuppaal.Template] = [
+            random_template_generator(f'Automaton{n}', nlocation, ntransition) for n in range(nautomata)
+        ]
+        system_init: list[str] = []
+        system: list[str] = []
         for idx, automaton in enumerate(automata):
-            automaton['name'] = f'Automaton{idx}'
-            automaton['locations'] = [f'l{i}' for i in range(nlocation)]
-            # Entries are tuples of (source_name, target_name, guard, resets)
-            automaton['transitions'] = list()
-            # Initialize the transitions
-            reachable = {automaton['locations'][0]}
-            unreachable = set(automaton['locations'][1:])
-            for _ in range(ntransition):
-                if unreachable:
-                    source = random.sample(reachable, 1)[0]
-                    target = random.sample(unreachable, 1)[0]
-                    unreachable.remove(target)
-                    reachable.add(target)
-                else:
-                    source, target = tuple(random.sample(reachable, 2))
+            system_init.append(f'template{idx} = {automaton.name}();')
+            system.append(f'template{idx}')
+        nta: pyuppaal.NTA = pyuppaal.NTA(
+            declaration=f'clock {", ".join(clocks)};' + '\n',
+            system='\n'.join(system_init) + '\n' + f'system {", ".join(system)};',
+            templates=automata
+        )
+        queries: list[str] = []
+        for i, automaton in enumerate(automata):
+            query = ['E<>', '(', f'template{i}.{automaton.locations[1].name}']
+            for j, automaton in enumerate(automata):
+                if i == j:
+                    continue
+                query.extend(['&&', f'!template{j}.{automaton.locations[2].name}'])
+            query.append(')')
+            queries.append(' '.join(query))
+        return nta, queries
+
+    def constraint_generator(
+            nta: pyuppaal.NTA,
+            nclock: int,
+            threshold_min: int,
+            threshold_max: int
+    ) -> pyuppaal.NTA:
+        """
+        Fills transitions of the given nta with randomly generated constraints.
+
+        Note that clocks are implicitly generated in the 'c{i}' format with i in 0 to number of clocks-1.
+
+        :param nta: A pyuppaal.NTA object.
+        :param nclock: Number of clocks in the NTA object.
+        :param threshold_min: Minimum value for the constraint constant.
+        :param threshold_max: Maximum value for the constraint constant.
+        :return: A copy of the given NTA object with constraints filled in.
+        """
+        nta_copy: pyuppaal.NTA = copy.deepcopy(nta)
+        operators = ['<', '>', '==', '<=', '>=']
+        for template in nta_copy.templates:
+            clocks = [f'c{i}' for i in range(nclock)]
+            for transition in template.transitions:
                 clock_count = random.randint(1, len(clocks))
                 used_clocks = random.sample(clocks, clock_count)
                 used_operators = random.choices(operators, k=clock_count)
@@ -223,54 +285,25 @@ def generate_nonvacuity_benchmarks(
                 reset_count = random.randint(0, len(clocks))
                 reset_clocks = random.sample(clocks, reset_count)
                 reset_string = ', '.join([f'{clock}=0' for clock in reset_clocks])
-                automaton['transitions'].append((source, target, guard_string, reset_string))
-        queries = []
-        for i, automaton in enumerate(automata):
-            query = ['E<>', '(', f'template{i}.{automaton["locations"][1]}']
-            for j, automaton in enumerate(automata):
-                if i == j:
-                    continue
-                query.extend(['&&', f'!template{j}.{automaton["locations"][2]}'])
-            query.append(')')
-            queries.append(' '.join(query))
-        return clocks, automata, queries
+                transition.guard.value = guard_string
+                transition.assignment.value = reset_string
+            template.layout()
+        return nta_copy
 
+    if model_template_file is None:
+        nta, queries = random_nta_generator(nclock, nautomata, nlocation, ntransition)
+    else:
+        nta, queries = pyuppaal.NTA.from_xml(model_template_file), None
     # Generate examples
     for i in range(nexamples):
-        clocks, automata, queries = generator(nclock, nautomata, nlocation, ntransition, threshold_min, threshold_max)
-        templates = []
-        system_init = []
-        system = []
-        for idx, automaton in enumerate(automata):
-            system_init.append(f'template{idx} = {automaton["name"]}();')
-            system.append(f'template{idx}')
-            template = pyuppaal.Template(automaton['name'])
-            template.locations = [pyuppaal.Location(name=loc) for loc in automaton['locations']]
-            template.initlocation = template.locations[0]
-            template.transitions = []
-            for source, target, guard, resets in automaton['transitions']:
-                for loc in template.locations:
-                    if str(loc.name) == source:
-                        source = loc
-                        break
-                for loc in template.locations:
-                    if str(loc.name) == target:
-                        target = loc
-                        break
-                template.transitions.append(pyuppaal.Transition(source, target, guard=guard, assignment=resets))
-            templates.append(template)
-            template.layout()
-        nta = pyuppaal.NTA(
-            declaration=f'clock {", ".join(clocks)};' + '\n',
-            system='\n'.join(system_init) + '\n' + f'system {", ".join(system)};',
-            templates=templates
-        )
-        base_file_path = f'{dir_path}/Example-{i}'
+        nta_copy = constraint_generator(nta, nclock, threshold_min, threshold_max)
+        base_file_path = f'{out_dir_path}/Example-{i}'
         ta_file_path = f'{base_file_path}.xml'
-        ta_file_contents = nta.to_xml()
-        query_file_path = f'{base_file_path}.q'
-        query_file_contents = '\n'.join(queries)
+        ta_file_contents = nta_copy.to_xml()
         with open(ta_file_path, mode='w') as f:
             f.write(ta_file_contents)
-        with open(query_file_path, 'w') as f:
-            f.write(query_file_contents)
+        if queries is not None:
+            query_file_path = f'{base_file_path}.q'
+            query_file_contents = '\n'.join(queries)
+            with open(query_file_path, 'w') as f:
+                f.write(query_file_contents)
