@@ -1,8 +1,9 @@
 import copy
 import random
+import tempfile
 from typing import Optional
 
-from . import pyuppaal
+from . import pyuppaal, ta_helper
 
 
 def add_path(template, path_source, path_target, n, li, clocks, lower_bounds, upper_bounds, final_guard):
@@ -176,6 +177,8 @@ def generate_nonvacuity_benchmarks(
         threshold_min=5,
         threshold_max=20,
         mutation_count=None,
+        enforce_vacuity=False,
+        max_considered_example_count=None,
 ):
     def random_template_generator(name: str, nlocation: int, ntransition: int) -> pyuppaal.Template:
         """
@@ -312,11 +315,41 @@ def generate_nonvacuity_benchmarks(
     else:
         nta, queries = pyuppaal.NTA.from_xml(model_template_file), None
     # Generate examples
-    for i in range(nexamples):
+    valid_example_count = 0
+    total_example_count = 0
+    while valid_example_count < nexamples:
+        if total_example_count % 25 == 0:
+            print(
+                f'Running: Considered {total_example_count} examples and found {valid_example_count} vacuous examples.'
+            )
+        if max_considered_example_count is not None and total_example_count >= max_considered_example_count:
+            break
+        total_example_count += 1
         nta_copy = constraint_generator(nta, nclock, threshold_min, threshold_max, mutation_count)
-        base_file_path = f'{out_dir_path}/Example-{i}'
+        base_file_path = f'{out_dir_path}/Example-{valid_example_count}'
         ta_file_path = f'{base_file_path}.xml'
         ta_file_contents = nta_copy.to_xml()
+
+        # Ensure that the generated model is vacuous
+        if enforce_vacuity and queries is not None:
+            # Generate temporary files for UPPAAL verification
+            skip_model = False
+            with tempfile.NamedTemporaryFile(mode='w+') as tmp_model:
+                tmp_model.write(ta_file_contents)
+                tmp_model.flush()
+                for query in queries:
+                    with tempfile.NamedTemporaryFile(mode='w+') as tmp_query:
+                        tmp_query.write(query)
+                        tmp_query.flush()
+                        stdoutdata, traces = ta_helper.verifyWithTrace(tmp_model.name, tmp_query.name, 'All')
+                        # Query did pass, model is not vacuous
+                        if not traces:
+                            skip_model = True
+                            break
+                if skip_model:
+                    continue
+
+        valid_example_count += 1
         with open(ta_file_path, mode='w') as f:
             f.write(ta_file_contents)
         if queries is not None:
@@ -324,3 +357,5 @@ def generate_nonvacuity_benchmarks(
             query_file_contents = '\n'.join(queries)
             with open(query_file_path, 'w') as f:
                 f.write(query_file_contents)
+
+    print(f'Final: Considered {total_example_count} examples and found {valid_example_count} vacuous examples.')

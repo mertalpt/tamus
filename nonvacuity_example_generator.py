@@ -3,7 +3,11 @@ from uppaalHelpers.example_generator import generate_nonvacuity_benchmarks
 if __name__ == '__main__':
     generate_nonvacuity_benchmarks(
         './generated-examples',
-        model_template_file='./generated-examples/Example-0 (copy).xml',
         nexamples=10,
-        mutation_count=2,
+        enforce_vacuity=True,
+        max_considered_example_count=100,
+        nclock=6,
+        nautomata=10,
+        nlocation=20,
+        ntransition=40,
     )

@@ -109,8 +109,7 @@ def verifyWithTrace(modelfilename, queryfilename, template_name, verifyta='verif
     #  modified version of verify from pyuppaal, change parameter verifyta to where verifyta is
     cmdline = ''
 
-    cmdline += verifyta + ' -t1 ' + ' -o0' + ' -S1' + \
-        ' -q ' + modelfilename + ' ' + queryfilename
+    cmdline += verifyta + ' -t1 ' + ' -o0' + ' -S1' + ' -q ' + modelfilename + ' ' + queryfilename
 
     # print 'Executing', cmdline
     proc = subprocess.Popen(
