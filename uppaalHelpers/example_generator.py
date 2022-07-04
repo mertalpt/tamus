@@ -1,5 +1,6 @@
 import copy
 import random
+from typing import Optional
 
 from . import pyuppaal
 
@@ -174,6 +175,7 @@ def generate_nonvacuity_benchmarks(
         ntransition=9,
         threshold_min=5,
         threshold_max=20,
+        mutation_count=None,
 ):
     def random_template_generator(name: str, nlocation: int, ntransition: int) -> pyuppaal.Template:
         """
@@ -257,7 +259,8 @@ def generate_nonvacuity_benchmarks(
             nta: pyuppaal.NTA,
             nclock: int,
             threshold_min: int,
-            threshold_max: int
+            threshold_max: int,
+            mutation_count: Optional[int],
     ) -> pyuppaal.NTA:
         """
         Fills transitions of the given nta with randomly generated constraints.
@@ -272,9 +275,23 @@ def generate_nonvacuity_benchmarks(
         """
         nta_copy: pyuppaal.NTA = copy.deepcopy(nta)
         operators = ['<', '>', '==', '<=', '>=']
-        for template in nta_copy.templates:
+        if mutation_count is None:
+            mutation_limits = [0] * len(nta_copy.templates)  # Will not be really used
+        else:
+            # Spread mutation count over the templates
+            mutation_limits = [mutation_count // len(nta_copy.templates)] * len(nta_copy.templates)
+            # Spread the remainder over the earlier templates
+            for i in range(mutation_count % len(nta_copy.templates)):
+                mutation_limits[i] += 1
+        for template_idx, template in enumerate(nta_copy.templates):
             clocks = [f'c{i}' for i in range(nclock)]
-            for transition in template.transitions:
+            # Iterate over template transitions in a random order
+            for transition in random.sample(template.transitions, len(template.transitions)):
+                # Cut off mutations if a limit is specified
+                if mutation_count is not None and mutation_limits[template_idx] <= 0:
+                    break
+                else:
+                    mutation_limits[template_idx] -= 1
                 clock_count = random.randint(1, len(clocks))
                 used_clocks = random.sample(clocks, clock_count)
                 used_operators = random.choices(operators, k=clock_count)
@@ -296,7 +313,7 @@ def generate_nonvacuity_benchmarks(
         nta, queries = pyuppaal.NTA.from_xml(model_template_file), None
     # Generate examples
     for i in range(nexamples):
-        nta_copy = constraint_generator(nta, nclock, threshold_min, threshold_max)
+        nta_copy = constraint_generator(nta, nclock, threshold_min, threshold_max, mutation_count)
         base_file_path = f'{out_dir_path}/Example-{i}'
         ta_file_path = f'{base_file_path}.xml'
         ta_file_contents = nta_copy.to_xml()
