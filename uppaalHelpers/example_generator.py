@@ -249,12 +249,13 @@ def generate_nonvacuity_benchmarks(
         )
         queries: list[str] = []
         for i, automaton in enumerate(automata):
-            query = ['E<>', '(', f'template{i}.{automaton.locations[1].name}']
+            query = [f'template{i}.{automaton.locations[1].name}']
             for j, automaton in enumerate(automata):
                 if i == j:
                     continue
                 query.extend(['&&', f'!template{j}.{automaton.locations[2].name}'])
-            query.append(')')
+            query = ' '.join(query)
+            query = f'E<> ({query})'
             queries.append(' '.join(query))
         return nta, queries
 
@@ -334,24 +335,26 @@ def generate_nonvacuity_benchmarks(
         if enforce_vacuity and queries is not None:
             # Generate temporary files for UPPAAL verification
             skip_model = False
-            with tempfile.NamedTemporaryFile(mode='w+') as tmp_model:
-                tmp_model.write(ta_file_contents)
-                tmp_model.flush()
-                for query in queries:
-                    with tempfile.NamedTemporaryFile(mode='w+') as tmp_query:
-                        tmp_query.write(query)
-                        tmp_query.flush()
-                        stdoutdata, traces = ta_helper.verifyWithTrace(tmp_model.name, tmp_query.name, 'All')
-                        # Query did pass, model is not vacuous
-                        if not traces:
-                            skip_model = True
-                            break
-                if skip_model:
-                    continue
+            with tempfile.TemporaryDirectory() as tempdir:
+                with open(f'{tempdir}/tmp-model.xml', mode='w+') as tmp_model:
+                    tmp_model.write(ta_file_contents)
+                    tmp_model.flush()
+                    for query in queries:
+                        with open(f'{tempdir}/tmp-query.q', mode='w+') as tmp_query:
+                            tmp_query.write(query)
+                            tmp_query.flush()
+                            stdoutdata, traces = ta_helper.verifyWithTrace(tmp_model.name, tmp_query.name, 'All')
+                            # Query did pass, model is not vacuous
+                            if traces:
+                                skip_model = True
+                                break
+                    if skip_model:
+                        continue
 
         valid_example_count += 1
         with open(ta_file_path, mode='w') as f:
             f.write(ta_file_contents)
+            print(f'Found valid example, writing to: {ta_file_path}')
         if queries is not None:
             query_file_path = f'{base_file_path}.q'
             query_file_contents = '\n'.join(queries)
