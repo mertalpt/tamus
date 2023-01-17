@@ -204,13 +204,16 @@ def generate_nonvacuity_benchmarks(
         unreachable: set[pyuppaal.Location] = set(locations[1:])
 
         for _ in range(ntransition):
+            # Location in index 2 is the error state that should be absorbing
+            source_candidates = reachable - {locations[2]}
             if unreachable:
-                source = random.sample(reachable, 1)[0]
+                source = random.sample(source_candidates, 1)[0]
                 target = random.sample(unreachable, 1)[0]
                 unreachable.remove(target)
                 reachable.add(target)
             else:
-                source, target = tuple(random.sample(reachable, 2))
+                source = random.sample(source_candidates, 1)[0]
+                target = random.sample(reachable, 1)[0]
             transition = pyuppaal.Transition(source, target)
             transitions.append(transition)
 
@@ -256,7 +259,7 @@ def generate_nonvacuity_benchmarks(
                 query.extend(['&&', f'!template{j}.{automaton.locations[2].name}'])
             query = ' '.join(query)
             query = f'E<> ({query})'
-            queries.append(' '.join(query))
+            queries.append(query)
         return nta, queries
 
     def constraint_generator(
@@ -357,7 +360,7 @@ def generate_nonvacuity_benchmarks(
             print(f'Found valid example, writing to: {ta_file_path}')
         if queries is not None:
             query_file_path = f'{base_file_path}.q'
-            query_file_contents = '\n'.join(queries)
+            query_file_contents = '\n'.join(queries) + '\n'
             with open(query_file_path, 'w') as f:
                 f.write(query_file_contents)
 

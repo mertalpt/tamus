@@ -709,13 +709,13 @@ class Tamus:
             args_var = vars(self.args)
             args_var['task'] = 'amsr'
             args_copy = argparse.Namespace(**args_var)
-            curr_tamus = Tamus(model_path, curr_query_path, curr_template.name, args_copy)
+            curr_tamus = Tamus(model_path, curr_query_path, "All", args_copy)
             curr_tamus.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
             curr_tamus.verbosity = args_copy.verbose if args_copy.verbose != None else 0
             curr_tamus.task = args_copy.task
             curr_tamus.usePathAnalysis = args_copy.path_analysis
             curr_tamus.useMultiplePathCores = args_copy.multiple_path_cores
-            curr_tamus.minimumMSR(True)
+            curr_tamus.minimumMSR(False)
             msres, _, _ = curr_tamus.get_MSRes()
 
             # Iterate over possible relaxations
