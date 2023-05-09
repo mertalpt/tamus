@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE nta PUBLIC '-//Uppaal Team//DTD Flat System 1.1//EN' 'http://www.it.uu.se/research/group/darts/uppaal/flat-1_2.dtd'>
+<nta>
+	<declaration>// Place global declarations here.
+clock c1, c2;
+chan request, pressed;</declaration>
+	<template>
+		<name x="9" y="9">Template1</name>
+		<declaration>// Place local declarations here.</declaration>
+		<location id="id0" x="-289" y="0">
+			<name x="-297" y="-34">wait1</name>
+		</location>
+		<location id="id1" x="-127" y="0">
+			<name x="-153" y="-34">received1</name>
+		</location>
+		<location id="id2" x="51" y="0">
+			<name x="43" y="-34">responded1</name>
+		</location>
+		<location id="id3" x="-127" y="119">
+			<name x="-136" y="85">error1</name>
+		</location>
+		<init ref="id0"/>
+		<transition>
+			<source ref="id2"/>
+			<target ref="id0"/>
+			<label kind="synchronisation" x="-144" y="-144">request!</label>
+			<nail x="-119" y="-127"/>
+		</transition>
+		<transition>
+			<source ref="id1"/>
+			<target ref="id3"/>
+			<label kind="guard" x="-127" y="26">c1&gt;=5</label>
+		</transition>
+		<transition>
+			<source ref="id1"/>
+			<target ref="id2"/>
+			<label kind="guard" x="-59" y="-17">c1&lt;5</label>
+			<label kind="synchronisation" x="-59" y="17">pressed?</label>
+			<label kind="assignment" x="-59" y="0">c1=0</label>
+		</transition>
+		<transition>
+			<source ref="id0"/>
+			<target ref="id1"/>
+			<label kind="synchronisation" x="-272" y="-17">request?</label>
+			<label kind="assignment" x="-272" y="0">c1=0</label>
+		</transition>
+	</template>
+	<template>
+		<name>Template2</name>
+		<location id="id4" x="-255" y="-25">
+			<name x="-265" y="-59">init2</name>
+		</location>
+		<location id="id5" x="-110" y="-25">
+			<name x="-161" y="-8">requested2</name>
+		</location>
+		<location id="id6" x="34" y="-25">
+			<name x="24" y="-59">pressed2</name>
+		</location>
+		<location id="id7" x="-110" y="-119">
+			<name x="-120" y="-153">error2</name>
+		</location>
+		<init ref="id4"/>
+		<transition>
+			<source ref="id5"/>
+			<target ref="id7"/>
+			<label kind="guard" x="-102" y="-102">c2&lt;3</label>
+			<label kind="synchronisation" x="-102" y="-85">request?</label>
+		</transition>
+		<transition>
+			<source ref="id6"/>
+			<target ref="id4"/>
+			<nail x="-102" y="85"/>
+		</transition>
+		<transition>
+			<source ref="id5"/>
+			<target ref="id6"/>
+			<label kind="guard" x="-68" y="-42">c2&gt;=10</label>
+			<label kind="synchronisation" x="-68" y="-25">pressed!</label>
+		</transition>
+		<transition>
+			<source ref="id4"/>
+			<target ref="id5"/>
+			<label kind="synchronisation" x="-237" y="-42">request!</label>
+			<label kind="assignment" x="-237" y="-25">c2=0</label>
+		</transition>
+	</template>
+	<system>// Place template instantiations here.
+Process1 = Template1();
+Process2 = Template2();
+// List one or more processes to be composed into a system.
+system Process1, Process2;
+    </system>
+	<queries>
+		<query>
+			<formula>E&lt;&gt; (Process1.responded1 &amp;&amp; !Process2.error2)</formula>
+			<comment></comment>
+		</query>
+		<query>
+			<formula>E&lt;&gt; (Process2.pressed2 &amp;&amp; !Process1.error1)</formula>
+			<comment></comment>
+		</query>
+	</queries>
+</nta>
