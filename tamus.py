@@ -670,7 +670,7 @@ class Tamus:
         print("Elapsed time in seconds after LP:",
               (time.process_time() - self.start_time))
 
-    def nonvacuity(self, find_all=False, use_treewalker=True, use_optimizer=True):
+    def nonvacuity(self, find_all=False, use_treewalker=False, use_optimizer=True):
         res = vacuity.repair(self, find_all, use_optimizer, use_treewalker)
         return res
 

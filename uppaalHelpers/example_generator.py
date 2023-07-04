@@ -253,12 +253,12 @@ def generate_nonvacuity_benchmarks(
         queries: list[str] = []
         for i, automaton in enumerate(automata):
             query = [f'template{i}.{automaton.locations[1].name}']
-            for j, automaton in enumerate(automata):
+            for j, other_automaton in enumerate(automata):
                 if i == j:
                     continue
-                query.extend(['&&', f'!template{j}.{automaton.locations[2].name}'])
+                query.extend(['&&', f'!template{j}.{other_automaton.locations[2].name}'])
             query = ' '.join(query)
-            query = f'E<> ({query})'
+            query = f'{automaton.name}: E<> ({query})'
             queries.append(query)
         return nta, queries
 
@@ -344,6 +344,7 @@ def generate_nonvacuity_benchmarks(
                     tmp_model.flush()
                     for query in queries:
                         with open(f'{tempdir}/tmp-query.q', mode='w+') as tmp_query:
+                            query = query.split(":", maxsplit=1)[-1]
                             tmp_query.write(query)
                             tmp_query.flush()
                             stdoutdata, traces = ta_helper.verifyWithTrace(tmp_model.name, tmp_query.name, 'All')

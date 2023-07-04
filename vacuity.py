@@ -62,7 +62,7 @@ def combiner_optimizer(msr_sets: list[list[set[str]]]) -> tuple[list[list[set[st
     return msr_sets, extract
 
 
-def treewalker_repair(tamus: Tamus, queries, templates, curr_idx, solutions, base_dir='.', find_all=True):
+def treewalker_repair(tamus, queries, templates, curr_idx, solutions, base_dir='.', find_all=True):
     """Run a recursive search on the TAs and yield solutions from base cases."""
     # No more templates
     if curr_idx == len(templates):
@@ -102,32 +102,34 @@ def treewalker_repair(tamus: Tamus, queries, templates, curr_idx, solutions, bas
     raise Exception('Non-vacuity is impossible.')
 
 
-def combiner_repair(tamus: Tamus, queries, templates, find_all=False, use_optimizer=True):
+def combiner_repair(tamus, queries, templates, find_all=False, use_optimizer=True):
     """Run an iterative search on the TAs and yields solutions from combinations."""
     msr_sets = []
-    for idx, _ in enumerate(templates):
-        print(f'Curr Idx: {idx} out of {len(templates) - 1}')
-        curr_query_path = queries[idx]
-        # We will trick Tamus into thinking we called a subtemplate with the 'amsr' task
-        # We will be calling the generating function manually, so not sure how much of this is necessary
-        args_var = vars(tamus.args)
-        args_var['task'] = 'amsr'
-        args_copy = argparse.Namespace(**args_var)
-        curr_tamus = Tamus(tamus.model_file, curr_query_path, "All", args_copy)
-        curr_tamus.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
-        curr_tamus.verbosity = args_copy.verbose if args_copy.verbose != None else 0
-        curr_tamus.task = args_copy.task
-        curr_tamus.usePathAnalysis = args_copy.path_analysis
-        curr_tamus.useMultiplePathCores = args_copy.multiple_path_cores
-        curr_tamus.minimumMSR(False)
-        print('Getting MSRs')
-        msres, _, _ = curr_tamus.get_MSRes()
-        # Sometimes empty constraint lists come with MSRs, filter them
-        msr_set = [set(msr) for msr in msres if len(msr) != 0]
-        # If we filtered everything, it means there was no need to remove a constraint
-        if len(msr_set) == 0:
-            msr_set.append(set())
-        msr_sets.append(msr_set)
+    for idx, template in enumerate(templates):
+        print(f'Curr Template Idx: {idx} out of {len(templates) - 1}')
+        curr_queries = queries[template]
+        for q_idx, curr_query_path in enumerate(curr_queries):
+            print(f'Curr Query Idx: {q_idx} out of {len(curr_queries) - 1}')
+            # We will trick Tamus into thinking we called a subtemplate with the 'amsr' task
+            # We will be calling the generating function manually, so not sure how much of this is necessary
+            args_var = vars(tamus.args)
+            args_var['task'] = 'amsr'
+            args_copy = argparse.Namespace(**args_var)
+            curr_tamus = Tamus(tamus.model_file, curr_query_path, "All", args_copy)
+            curr_tamus.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
+            curr_tamus.verbosity = args_copy.verbose if args_copy.verbose != None else 0
+            curr_tamus.task = args_copy.task
+            curr_tamus.usePathAnalysis = args_copy.path_analysis
+            curr_tamus.useMultiplePathCores = args_copy.multiple_path_cores
+            curr_tamus.minimumMSR(False)
+            print('Getting MSRs')
+            msres, _, _ = curr_tamus.get_MSRes()
+            # Sometimes empty constraint lists come with MSRs, filter them
+            msr_set = [set(msr) for msr in msres if len(msr) != 0]
+            # If we filtered everything, it means there was no need to remove a constraint
+            if len(msr_set) == 0:
+                msr_set.append(set())
+            msr_sets.append(msr_set)
     
     if not find_all:
         # Calculate the minimal overall reduction
@@ -147,13 +149,12 @@ def combiner_repair(tamus: Tamus, queries, templates, find_all=False, use_optimi
     candidates = []
     for idx, curr_msres in enumerate(msres):
         print(f'Curr Idx: {idx} out of {len(templates) - 1}')
-        curr_query_path = queries[idx]
         # We will trick Tamus into thinking we called a subtemplate with the 'amsr' task
         # We will be calling the generating function manually, so not sure how much of this is necessary
         args_var = vars(tamus.args)
         args_var['task'] = 'amsr'
         args_copy = argparse.Namespace(**args_var)
-        curr_tamus = Tamus(tamus.model_file, curr_query_path, "All", args_copy)
+        curr_tamus = Tamus(tamus.model_file, None, "All", args_copy)
         curr_tamus.timelimit = args_copy.msr_timelimit if args_copy.msr_timelimit != None else 1000000
         curr_tamus.verbosity = args_copy.verbose if args_copy.verbose != None else 0
         curr_tamus.task = args_copy.task
@@ -168,7 +169,7 @@ def combiner_repair(tamus: Tamus, queries, templates, find_all=False, use_optimi
     return candidates
 
 
-def repair(tamus: Tamus, find_all: bool = False, use_optimizer: bool = True, use_treewalker: bool = False):
+def repair(tamus, find_all: bool = False, use_optimizer: bool = True, use_treewalker: bool = False):
     """
     Given N timed automata, ensure each one can reach its accepting state without making another TA go into error.
 
@@ -191,12 +192,18 @@ def repair(tamus: Tamus, find_all: bool = False, use_optimizer: bool = True, use
     start_time = time.process_time()
     with tempfile.TemporaryDirectory() as tempdir:
         templates = tamus.TA.templates
-        queries = []
+        template_map = {t.name: t for t in templates}
+        queries = {}
         with open(tamus.query_file) as qf:
             lines = qf.readlines()
             for idx, line in enumerate(lines):
+                split_line = line.split(":", maxsplit=1)
+                template = template_map[split_line[0]]
+                line = split_line[1]
                 query_path = f'{tempdir}/query-{idx}.q'
-                queries.append(query_path)
+                if queries.get(template) is None:
+                    queries[template] = []
+                queries[template].append(query_path)
                 with open(query_path, mode='w') as f:
                     f.write(line)
         if use_treewalker:
