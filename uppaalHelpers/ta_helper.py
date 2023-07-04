@@ -11,8 +11,9 @@ def get_template_name(ta_file_path, model_name):
     template_name = ""
     with open(ta_file_path, 'r') as myfile:
         for line in myfile:
-            if line.startswith(string_catch):
-                line_s = line.split(" ")
+            catch_idx = line.find(string_catch)
+            if catch_idx != -1:
+                line_s = line[catch_idx:].split(" ")
                 template_name = line_s[-1]
                 template_name = template_name[:template_name.index('(')]
                 break
